@@ -19,6 +19,15 @@ jobs:
   seed:
     runs-on: ubuntu-24.04
     steps:
+      # The first seeding attempt failed exactly here: the GH_PAT secret was
+      # empty (gh secret set had been fed an empty stdin), downloads worked
+      # anonymously and the upload died. Fail before moving 14 GB for nothing.
+      - name: Fail early if GH_PAT is missing
+        env:
+          PAT: ${{ secrets.GH_PAT }}
+        run: |
+          [ -n "$PAT" ] || { echo "::error::GH_PAT secret is empty or unset - set it and re-dispatch"; exit 1; }
+
       - name: Mirror upstream ccache assets
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
