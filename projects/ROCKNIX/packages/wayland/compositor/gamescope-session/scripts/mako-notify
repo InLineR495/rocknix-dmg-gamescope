@@ -1,0 +1,20 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2026 ROCKNIX (https://github.com/ROCKNIX)
+#
+# Stand-in for the real mako-notify, which leaves the image together with sway
+# and the mako daemon.
+#
+# This exists instead of editing the callers because there are a dozen of them
+# in shared scripts (input_sense fires one on every volume and brightness step,
+# start_vita3k.sh calls it with no `command -v` guard at all), and those scripts
+# are built for every device, not just this one. A stub that lands only in
+# gamescope images keeps sway devices untouched and turns what would be a
+# "command not found" on every volume tap into a log line.
+#
+# On-screen notifications are a deliberate casualty of the switch, not an
+# oversight - see the -no-es flag below, which the real tool used to decide
+# whether EmulationStation needed pausing. Nothing here needs to pause.
+
+logger -t mako-notify "$*"
+exit 0

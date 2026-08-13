@@ -37,6 +37,19 @@ if ! resolve_heroic_bin; then
   exit 1
 fi
 
+### This script exists only to put an on-screen keyboard in front of the Epic /
+### GOG login form. Everything it does is wvkbd plus sway IPC to place it, and a
+### gamescope image ships neither, so Heroic is launched bare.
+###
+### Known cost, stated plainly: a device with no physical keyboard has nothing
+### to type the credentials with. Pair a Bluetooth keyboard for the one-time
+### login, or sign in and copy the config across.
+if [ "$(compositor)" != "sway" ]; then
+  cd "$(dirname "${HEROIC_BIN}")" || exit 1
+  export ELECTRON_OZONE_PLATFORM_HINT=wayland
+  exec "${HEROIC_BIN}" --no-sandbox --ozone-platform=wayland "$@"
+fi
+
 trap 'cleanup_keyboard' EXIT
 
 cd "$(dirname "${HEROIC_BIN}")" || exit 1

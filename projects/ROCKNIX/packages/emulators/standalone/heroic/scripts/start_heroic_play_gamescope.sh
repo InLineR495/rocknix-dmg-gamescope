@@ -23,6 +23,15 @@ if ! resolve_heroic_bin; then
   exit 1
 fi
 
+### When gamescope is already the session compositor, this whole script has
+### nothing left to do that the plain launcher does not do better: nesting a
+### second gamescope inside the first composites everything twice, and on a
+### rotated panel the inner one cannot rotate at all (the rotation shader only
+### engages on the DRM backend), so the picture would come out on its side.
+if [ "$(compositor)" = "gamescope" ]; then
+  exec /usr/bin/start_heroic_play.sh "$@"
+fi
+
 if [ "${DEVICE_HAS_DUAL_SCREEN}" = "true" ]; then
   swaymsg 'seat seat1 fallback true'
 fi

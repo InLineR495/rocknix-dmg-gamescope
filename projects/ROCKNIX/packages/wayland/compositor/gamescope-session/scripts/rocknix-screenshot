@@ -1,0 +1,20 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2026 ROCKNIX (https://github.com/ROCKNIX)
+#
+# Stand-in for the real rocknix-screenshot, which is grim plus swaymsg. Neither
+# survives the switch: grim needs wlr-screencopy and the geometry comes from
+# sway's IPC, and gamescope implements neither.
+#
+# input_sense calls this from the hotkey handler on every device, so the stub is
+# here to keep that path quiet rather than to preserve the feature.
+#
+# Screenshots are NOT lost, they just move into the compositor: gamescope binds
+# Super+S itself. Triggering it from a script would mean setting the
+# GAMESCOPECTRL_REQUEST_SCREENSHOT atom on the Xwayland root window, which needs
+# an X client (xprop) that this image does not ship, or speaking the
+# gamescope-control Wayland protocol.
+
+echo "screenshots are handled by the compositor in a gamescope session: press Super+S" >&2
+logger -t rocknix-screenshot "screenshot requested via hotkey; use Super+S (gamescope built-in)"
+exit 0

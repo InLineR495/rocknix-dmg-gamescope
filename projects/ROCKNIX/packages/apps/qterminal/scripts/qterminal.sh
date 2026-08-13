@@ -16,6 +16,17 @@ fi
 # same workspace. Solution: dedicate workspace 99 to qterminal so it's the
 # sole tiled window there — sway then fills the workspace area minus wvkbd's
 # exclusive_zone, giving us no overlap and no side-by-side tile.
+### Everything between here and the launch is sway plus wvkbd, and a gamescope
+### image has neither: the on-screen keyboard package is gated on
+### WINDOWMANAGER=swaywm-env and there is no IPC to move workspaces with.
+### gamescope fullscreens qterminal by itself, so the terminal still opens - it
+### just has no on-screen keyboard, which is a known cost of the switch and the
+### reason this is a guard rather than a deletion.
+if [ "$(compositor)" != "sway" ]; then
+  cd ~/
+  exec /usr/bin/qterminal
+fi
+
 prior_tskb=$(get_setting "rocknix.touchscreen-keyboard.enabled")
 set_setting "rocknix.touchscreen-keyboard.enabled" "0"
 pkill wvkbd-mobintl 2>/dev/null

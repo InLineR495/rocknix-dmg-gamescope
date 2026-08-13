@@ -78,7 +78,39 @@ steam_debug_print() {
   echo "VSYNC set to: ${VSYNC}"
 }
 
+# True when gamescope is the session compositor and already owns DRM, rather
+# than something this script starts nested inside sway.
+steam_session_is_gamescope() {
+  case "${UI_SERVICE}" in
+    *gamescope*) return 0 ;;
+    *)           return 1 ;;
+  esac
+}
+
 steam_read_sway_geometry() {
+  # Kept under its original name because the per-flavour entry scripts call it
+  # by that name; it now answers for whichever compositor is actually running.
+  #
+  # Getting this wrong fails quietly, which is why it is worth the branch: with
+  # no swaymsg the eval below sets nothing, W/H stay empty, REFRESH_HZ becomes
+  # 0, and gamescope is handed `-W "" -H "" -r 0`. There is no `set -u` here, so
+  # nothing errors - Steam just comes up wrong.
+  if steam_session_is_gamescope; then
+    # The session already worked all of this out at boot; reuse it rather than
+    # asking a compositor that does not answer geometry queries.
+    [ -r /var/run/gamescope/device-env ] && . /var/run/gamescope/device-env
+    W="${GS_WIDTH}"
+    H="${GS_HEIGHT}"
+    REFRESH_HZ="${GS_REFRESH:-60}"
+    case "${GS_ORIENTATION}" in
+      left)       TRANSFORM="270" ;;
+      right)      TRANSFORM="90"  ;;
+      upsidedown) TRANSFORM="180" ;;
+      *)          TRANSFORM="0"   ;;
+    esac
+    return 0
+  fi
+
   eval "$(swaymsg -t get_outputs | jq -r '
     .[] | select(.focused == true) |
     "W=\(.current_mode.width) H=\(.current_mode.height) TRANSFORM=\(.transform) REFRESH=\(.current_mode.refresh // 60000)"
@@ -109,14 +141,16 @@ steam_scope_reexec_if_needed() {
 
 steam_dual_screen_begin() {
   if [ "${DEVICE_HAS_DUAL_SCREEN}" = "true" ]; then
-    swaymsg 'seat seat1 fallback true'
+    # Seat juggling is a sway concept; gamescope has one seat and no IPC to
+    # move it. Output preference still applies when we do launch nested.
+    steam_session_is_gamescope || swaymsg 'seat seat1 fallback true'
     PREFER_OUTPUT="--prefer-output $SDL_VIDEO_DISPLAY_PRIORITY"
   fi
 }
 
 steam_dual_screen_end() {
   if [ "${DEVICE_HAS_DUAL_SCREEN}" = "true" ]; then
-    swaymsg 'seat seat1 fallback false'
+    steam_session_is_gamescope || swaymsg 'seat seat1 fallback false'
   fi
 }
 
@@ -153,6 +187,17 @@ steam_launch_bigpicture() {
     if [ "${GAMESCOPE}" = "0" ]; then
       SDL_VIDEODRIVER=x11 LD_LIBRARY_PATH=/storage/.local/share/Steam/lib/aarch64-linux-gnu/ ${EMUPERF} /storage/.local/share/Steam/steamrtarm64/steam -nofriendsui -noverifyfiles -nobootstrapupdate -skipinitialbootstrap -norepairfiles -noshaders ${game_uri:+"$game_uri"}
       exit 0
+    elif steam_session_is_gamescope; then
+      # gamescope is already the session compositor and already owns DRM, so
+      # Steam is just another client of it. Starting a second, nested gamescope
+      # here would composite the whole desktop twice; stopping the outer one to
+      # make room would take EmulationStation and the session down with it.
+      #
+      # The unit this runs under has Restart=always, so a `systemctl stop` on
+      # the compositor is not even a temporary outcome - it is a restart loop.
+      SDL_VIDEODRIVER=x11 LD_LIBRARY_PATH=/storage/.local/share/Steam/lib/aarch64-linux-gnu/ ${EMUPERF} \
+        /storage/.local/share/Steam/steamrtarm64/steam -steamdeck -steamos3 -gamepadui -noverifyfiles -nobootstrapupdate -skipinitialbootstrap -norepairfiles -noshaders ${game_uri:+"$game_uri"}
+      exit 0
     else
       systemctl stop sway
       GAMESCOPE_MODE_SAVE_FILE="${gamescope_mode_file}" GAMESCOPE_FAKE_OUTPUT_MM=508x286 env -u WAYLAND_DISPLAY LD_LIBRARY_PATH=/storage/.local/share/Steam/lib/aarch64-linux-gnu/ ${EMUPERF} \
@@ -165,6 +210,13 @@ steam_launch_bigpicture() {
     FEX /usr/bin/steam -steamdeck -exitsteam
     if [ "${GAMESCOPE}" = "0" ]; then
       ${EMUPERF} FEX /usr/bin/steam -nofriendsui -noverifyfiles -nobootstrapupdate -skipinitialbootstrap -norepairfiles -noshaders ${game_uri:+"$game_uri"}
+      exit 0
+    elif steam_session_is_gamescope; then
+      # Same reasoning as the arm64 branch above: the session compositor is
+      # already gamescope, so Steam runs inside it instead of underneath a
+      # second copy.
+      SDL_VIDEODRIVER=x11 ${EMUPERF} \
+        FEX /usr/bin/steam -steamdeck -steamos3 -gamepadui -noverifyfiles -nobootstrapupdate -skipinitialbootstrap -norepairfiles -noshaders ${game_uri:+"$game_uri"}
       exit 0
     else
       systemctl stop sway

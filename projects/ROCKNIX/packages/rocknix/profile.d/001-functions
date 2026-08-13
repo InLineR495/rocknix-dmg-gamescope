@@ -176,6 +176,17 @@ function cpu_vendor() {
   awk '/vendor_id/ {print $3;exit}' /proc/cpuinfo
 }
 
+# Which compositor owns the display this boot. UI_SERVICE is the one thing that
+# is already correct on every platform, and it is set before anything that calls
+# this runs.
+function compositor {
+  case "${UI_SERVICE}" in
+    *gamescope*) echo "gamescope" ;;
+    *sway*)      echo "sway" ;;
+    *)           echo "none" ;;
+  esac
+}
+
 # sway window manager utility function to enable fullscreen on a window for an input app_id
 function sway_fullscreen {
   # value for swaymsg criteria
@@ -189,6 +200,13 @@ function sway_fullscreen {
   # retry control vars
   local QUERY_LIMIT=5
   local QUERY_COUNT=0
+
+  # gamescope gives its focused client the whole output on its own - there is
+  # no tiling and no window to ask about - so this is a no-op there rather than
+  # a failure. Sixteen of the seventeen callers need nothing else to work.
+  if [ "$(compositor)" = "gamescope" ]; then
+    return 0
+  fi
 
   if echo "${UI_SERVICE}" | grep "sway"; then
     while [ $QUERY_COUNT -lt $QUERY_LIMIT ]; do

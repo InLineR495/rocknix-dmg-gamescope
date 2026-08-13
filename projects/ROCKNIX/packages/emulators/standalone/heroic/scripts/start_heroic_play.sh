@@ -23,12 +23,17 @@ if ! resolve_heroic_bin; then
   exit 1
 fi
 
-if [ "${DEVICE_HAS_DUAL_SCREEN}" = "true" ]; then
-  swaymsg 'seat seat1 fallback true'
+# sway-only: gamescope has no IPC to ask and no tiling to override, it simply
+# gives its focused client the whole output. Guarded rather than deleted because
+# this script is built for every device.
+if [ "$(compositor)" = "sway" ]; then
+  if [ "${DEVICE_HAS_DUAL_SCREEN}" = "true" ]; then
+    swaymsg 'seat seat1 fallback true'
+  fi
+  trap '[ "${DEVICE_HAS_DUAL_SCREEN}" = "true" ] && swaymsg "seat seat1 fallback false" || true' EXIT
+  swaymsg for_window [app_id="heroic"] fullscreen enable
+  swaymsg for_window [class="heroic"] fullscreen enable
 fi
-trap '[ "${DEVICE_HAS_DUAL_SCREEN}" = "true" ] && swaymsg "seat seat1 fallback false" || true' EXIT
-swaymsg for_window [app_id="heroic"] fullscreen enable
-swaymsg for_window [class="heroic"] fullscreen enable
 
 export ELECTRON_OZONE_PLATFORM_HINT=wayland
 HEROIC_ARGS=(--no-sandbox --ozone-platform=wayland)
