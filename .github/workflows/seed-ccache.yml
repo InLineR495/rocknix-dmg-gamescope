@@ -1,0 +1,38 @@
+name: Seed ccache from upstream
+
+# One-shot helper for a fork with an empty distribution-cache: mirror the
+# upstream ccache release assets for one device into our cache repository so
+# the first build starts half-warm instead of fully cold. Asset names match
+# what the Retrieve-ccache steps download 1:1, and CCACHE_COMPILERCHECK=content
+# means hits survive the tag-vs-next source drift. Runs on a datacenter link
+# instead of dragging ~13 GB through a home connection.
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: Device whose ccache assets to mirror
+        required: true
+        default: SM8550
+
+jobs:
+  seed:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Mirror upstream ccache assets
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          SRC: ROCKNIX/distribution-cache
+          DST: ${{ github.repository_owner }}/distribution-cache
+          DEV: ${{ inputs.device }}
+        run: |
+          set -e
+          mkdir seed && cd seed
+          gh release view ccache -R "$SRC" --json assets \
+            --jq '.assets[] | [.name, .size] | @tsv' | grep "$DEV" || true
+          gh release download ccache -R "$SRC" --pattern "*${DEV}*"
+          ls -la
+          gh release create ccache -R "$DST" --prerelease --notes cache 2>/dev/null || true
+          gh release upload ccache -R "$DST" --clobber ./*
+          echo "Seeded $DST with:"
+          gh release view ccache -R "$DST" --json assets --jq '.assets[].name'

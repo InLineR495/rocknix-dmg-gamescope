@@ -191,7 +191,11 @@ jobs:
     # dmg-gamescope) disabled auto-retry entirely - any transient failure in an
     # ~8-stage chain then needs a manual re-run. The branch gate is dropped;
     # the run_attempt < 3 cap still bounds it.
-    if: always() && !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && fromJSON(github.run_attempt) < 3 && (github.event_name != 'schedule' || github.repository == 'ROCKNIX/distribution')
+    # Cap raised from 3: with a cold cache the convergence ladder is
+    # "aarch64/mame time out warm-saving partial ccache -> emu stages time out
+    # warm-saving theirs -> everything fits" - that can take more than three
+    # rungs. Each attempt reruns only failed jobs, so extra rungs are cheap.
+    if: always() && !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && fromJSON(github.run_attempt) < 5 && (github.event_name != 'schedule' || github.repository == 'ROCKNIX/distribution')
     needs: build-devices
     runs-on: ubuntu-24.04
     steps:
