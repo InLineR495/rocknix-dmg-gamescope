@@ -15,6 +15,21 @@ fi
 
 
 while true; do
+  # This service starts at multi-user.target, long before the gamescope session
+  # exists, and the one-shot `. /etc/profile` above therefore never sees a
+  # WAYLAND_DISPLAY there - gamescope's socket is named gamescope-N and the
+  # name is only published (and re-published on every session restart) through
+  # the handshake file. Re-read it each pass; under sway the file simply never
+  # exists and the statically exported wayland-1 keeps working as before.
+  if [ -r /var/run/gamescope/env ]; then
+    . /var/run/gamescope/env
+    export DISPLAY WAYLAND_DISPLAY GAMESCOPE_WAYLAND_DISPLAY XDG_RUNTIME_DIR
+  elif [ "$(compositor)" = "gamescope" ]; then
+    # Session not up yet: spawning wvkbd now would just die against a socket
+    # that is not there.
+    sleep 5
+    continue
+  fi
   TSKEY=$(get_setting "rocknix.touchscreen-keyboard.enabled")
   if [[ "${DEVICE_HAS_TOUCHSCREEN}" == "true" ]] && [[ "${TSKEY}" == "1" ]]; then
     PID="$(pidof wvkbd-mobintl)"

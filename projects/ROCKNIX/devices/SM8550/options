@@ -54,6 +54,12 @@
   # rejects page flips (26-83 "atomic commit failed" per minute), which no
   # amount of RetroArch tuning could fix because it sits below the emulator.
   # The same panel under gamescope-as-DRM-owner measures zero.
+  #
+  # ACCEPTED TRADEOFF: this switch is platform-wide, and gamescope drives ONE
+  # output. Dual-screen SM8550 devices (AYANEO Pocket DS, AYN Thor) keep only
+  # their top panel; the bottom screen, its keyboard and the vertical-arcade
+  # layouts stay dark. This fork targets the Pocket DMG - flip this back to
+  # swaywm-env if a dual-screen device is what you are building for.
     WINDOWMANAGER="gamescope-env"
 
   # Additional drivers to install:

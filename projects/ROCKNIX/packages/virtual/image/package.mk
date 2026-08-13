@@ -28,6 +28,17 @@ if listcontains "${WINDOWMANAGER}" "swaywm-env"; then
   PKG_DEPENDS_TARGET+=" mako-osd"
 fi
 
+# On sway devices the compositor reaches the base image (EMULATION_DEVICE=no)
+# through SDL2 -> ${WINDOWMANAGER}. For gamescope-env that edge is deliberately
+# cut to break the SDL2 -> gamescope -> SDL2 dependency cycle, so the base
+# image ends up with a UI_SERVICE quirk pointing at a gamescope.service that
+# does not exist - a black screen. Pull the stack in from here instead: nothing
+# depends on image, so no cycle, and gamescope-env already empties itself when
+# BASE_ONLY=true, which keeps the 32-bit stage clean.
+if listcontains "${WINDOWMANAGER}" "gamescope-env"; then
+  PKG_DEPENDS_TARGET+=" gamescope-env"
+fi
+
 PKG_UI="emulationstation es-themes textviewer lowerdeck"
 
 PKG_UI_TOOLS="fbgrab grim"

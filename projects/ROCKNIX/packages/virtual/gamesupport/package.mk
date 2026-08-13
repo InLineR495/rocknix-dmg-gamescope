@@ -18,8 +18,13 @@ esac
 # The on-screen keyboard needs a compositor that speaks wlr-layer-shell and
 # zwp_virtual_keyboard_manager_v1. sway has both; gamescope has layer-shell
 # already and gets the virtual keyboard from patch 0007 in its package.
+#
+# Matched exactly, not by glob: RK3588 sets WINDOWMANAGER="weston swaywm-env"
+# and never shipped the keyboard - a substring match would add it there, and
+# its touchkeyboard.service would respawn a dying wvkbd forever on weston
+# boots, which have no layer-shell.
 case "${WINDOWMANAGER}" in
-  *swaywm-env*|*gamescope-env*)
+  swaywm-env|gamescope-env)
     PKG_GAMESUPPORT+=" rocknix-touchscreen-keyboard"
     ;;
 esac
