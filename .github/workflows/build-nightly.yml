@@ -187,7 +187,11 @@ jobs:
       OFFICIAL: ${{ needs.set-envs.outputs.OFFICIAL }}
 
   rerun-failed-jobs:
-    if: always() && !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && fromJSON(github.run_attempt) < 3 && github.ref_name == 'next' && (github.event_name != 'schedule' || github.repository == 'ROCKNIX/distribution')
+    # Upstream gates this on ref_name == 'next', which on this fork (branch
+    # dmg-gamescope) disabled auto-retry entirely - any transient failure in an
+    # ~8-stage chain then needs a manual re-run. The branch gate is dropped;
+    # the run_attempt < 3 cap still bounds it.
+    if: always() && !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && fromJSON(github.run_attempt) < 3 && (github.event_name != 'schedule' || github.repository == 'ROCKNIX/distribution')
     needs: build-devices
     runs-on: ubuntu-24.04
     steps:
