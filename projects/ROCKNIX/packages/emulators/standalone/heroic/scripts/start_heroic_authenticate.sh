@@ -37,17 +37,30 @@ if ! resolve_heroic_bin; then
   exit 1
 fi
 
-### This script exists only to put an on-screen keyboard in front of the Epic /
-### GOG login form. Everything it does is wvkbd plus sway IPC to place it, and a
-### gamescope image ships neither, so Heroic is launched bare.
-###
-### Known cost, stated plainly: a device with no physical keyboard has nothing
-### to type the credentials with. Pair a Bluetooth keyboard for the one-time
-### login, or sign in and copy the config across.
+### The keyboard itself works under gamescope; only the sway parts do not -
+### seat fallback, the fullscreen rule, and asking IPC which output is focused.
+### wvkbd picks the sole output on its own when --output is omitted.
 if [ "$(compositor)" != "sway" ]; then
+  trap 'cleanup_keyboard' EXIT
   cd "$(dirname "${HEROIC_BIN}")" || exit 1
+
+  if systemctl is-active --quiet touchkeyboard.service; then
+    TOUCHKB_WAS_ACTIVE=1
+    systemctl stop touchkeyboard.service >/dev/null 2>&1 || true
+  fi
+  killall wvkbd-mobintl >/dev/null 2>&1 || true
+  sleep 0.2
+
+  /usr/bin/wvkbd-mobintl -L 500 -fg 6b6b75 -fg-sp 6b6b75 -bg 1d1d1d \
+    --text ffffff --text-sp ffffff -press 000000 --press-sp 000000 -fn 48 -l simple \
+    >/dev/null 2>&1 &
+  WVKBD_PID=$!
+  sleep 0.25
+  kill -USR2 "${WVKBD_PID}" 2>/dev/null || true
+
   export ELECTRON_OZONE_PLATFORM_HINT=wayland
-  exec "${HEROIC_BIN}" --no-sandbox --ozone-platform=wayland "$@"
+  "${HEROIC_BIN}" --no-sandbox --ozone-platform=wayland "$@"
+  exit $?
 fi
 
 trap 'cleanup_keyboard' EXIT

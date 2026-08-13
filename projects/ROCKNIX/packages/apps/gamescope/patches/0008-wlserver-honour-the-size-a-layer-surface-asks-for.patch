@@ -1,0 +1,26 @@
+diff --git a/src/wlserver.cpp b/src/wlserver.cpp
+index c7d2827..d5c1b77 100644
+--- a/src/wlserver.cpp
++++ b/src/wlserver.cpp
+@@ -230,7 +230,20 @@ void xwayland_surface_commit(struct wlr_surface *wlr_surface) {
+ 				wlr_xdg_surface_schedule_configure( wlserver_xdg_surface_info->xdg_surface );
+ 
+ 			if ( wlserver_xdg_surface_info->layer_surface )
+-				wlr_layer_surface_v1_configure( wlserver_xdg_surface_info->layer_surface, g_nNestedWidth, g_nNestedHeight );
++			{
++				// Every layer surface used to be configured to the full output,
++				// which throws away the size the client asked for. An on-screen
++				// keyboard asks for width 0 ("compositor decides") and its own
++				// height, so being handed the whole panel makes it draw over the
++				// entire screen instead of a strip.
++				//
++				// Zero still means "you decide", so a client that wants the full
++				// output keeps getting it.
++				struct wlr_layer_surface_v1 *pLayerSurface = wlserver_xdg_surface_info->layer_surface;
++				uint32_t uWidth  = pLayerSurface->current.desired_width  ? pLayerSurface->current.desired_width  : g_nNestedWidth;
++				uint32_t uHeight = pLayerSurface->current.desired_height ? pLayerSurface->current.desired_height : g_nNestedHeight;
++				wlr_layer_surface_v1_configure( pLayerSurface, uWidth, uHeight );
++			}
+ 
+ 			wlserver_xdg_surface_info->bDoneConfigure = true;
+ 		}

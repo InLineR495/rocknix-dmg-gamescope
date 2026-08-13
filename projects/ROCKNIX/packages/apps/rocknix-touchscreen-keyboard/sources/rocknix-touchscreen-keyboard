@@ -20,7 +20,10 @@ while true; do
     PID="$(pidof wvkbd-mobintl)"
     if [  "$PID" != ""  ]; then
       killall wvkbd-mobintl
-    elif [[ "${DEVICE_HAS_DUAL_SCREEN}" == "true" ]]; then
+    elif [[ "${DEVICE_HAS_DUAL_SCREEN}" == "true" ]] && [ "$(compositor)" = "sway" ]; then
+      # Putting the keyboard on the second panel needs sway IPC to power that
+      # output on and to name it. gamescope drives one output, so those devices
+      # fall through to the single-screen branch below.
       secondary_output=$(swaymsg -t get_outputs -r | jq -r '.[] | select(.focused == false) | .name')
       swaymsg output ${secondary_output} power on
       if [[ ! "${QUIRK_DEVICE}" == "Anbernic RG DS" ]]; then

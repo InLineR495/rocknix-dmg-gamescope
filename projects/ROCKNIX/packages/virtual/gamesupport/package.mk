@@ -15,8 +15,14 @@ case ${DEVICE} in
     ;;
 esac
 
-# rocknix-touchscreen-keyboard requires sway
-[[ "${WINDOWMANAGER}" = "swaywm-env" ]] && PKG_GAMESUPPORT+=" rocknix-touchscreen-keyboard"
+# The on-screen keyboard needs a compositor that speaks wlr-layer-shell and
+# zwp_virtual_keyboard_manager_v1. sway has both; gamescope has layer-shell
+# already and gets the virtual keyboard from patch 0007 in its package.
+case "${WINDOWMANAGER}" in
+  *swaywm-env*|*gamescope-env*)
+    PKG_GAMESUPPORT+=" rocknix-touchscreen-keyboard"
+    ;;
+esac
 
 PKG_DEPENDS_TARGET="${PKG_GAMESUPPORT}"
 

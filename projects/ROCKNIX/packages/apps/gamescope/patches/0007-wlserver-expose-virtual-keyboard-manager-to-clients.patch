@@ -1,0 +1,121 @@
+From a61d9f636f067fe425ca1346c6bdc38067ecf3e2 Mon Sep 17 00:00:00 2001
+From: c <a@b>
+Date: Thu, 13 Aug 2026 19:01:36 +0300
+Subject: [PATCH] wlserver: expose zwp_virtual_keyboard_manager_v1 to clients
+
+gamescope already has the right entry point for injecting keystrokes -
+wlserver_key(), which its own IME uses - but never advertised the virtual
+keyboard protocol, so no external on-screen keyboard could reach it.
+wvkbd dies at startup with "virtual_keyboard_manager not available".
+
+Events are routed straight to wlserver_key() rather than through
+wlserver_new_input(): that path forces the compositor keymap onto the
+device so it can join the keyboard group, which would reinterpret the
+keycodes a virtual keyboard sends under a keymap it did not choose.
+
+---
+ src/wlserver.cpp | 61 ++++++++++++++++++++++++++++++++++++++++++++++++
+ src/wlserver.hpp |  1 +
+ 2 files changed, 62 insertions(+)
+
+diff --git a/src/wlserver.cpp b/src/wlserver.cpp
+index 34cd5ae..c7d2827 100644
+--- a/src/wlserver.cpp
++++ b/src/wlserver.cpp
+@@ -34,6 +34,7 @@
+ #include <wlr/types/wlr_compositor.h>
+ #include <wlr/types/wlr_keyboard.h>
+ #include <wlr/types/wlr_keyboard_group.h>
++#include <wlr/types/wlr_virtual_keyboard_v1.h>
+ #include <wlr/types/wlr_pointer.h>
+ #include <wlr/types/wlr_seat.h>
+ #include <wlr/types/wlr_touch.h>
+@@ -566,6 +567,58 @@ static void wlserver_new_input(struct wl_listener *listener, void *data)
+ 
+ static struct wl_listener new_input_listener = { .notify = wlserver_new_input };
+ 
++// An on-screen keyboard needs somewhere to send its keystrokes. gamescope has
++// exactly the right entry point already - wlserver_key(), which its own IME
++// uses - but never exposed zwp_virtual_keyboard_manager_v1, so no external
++// client could reach it. wvkbd and friends bail out at startup with
++// "virtual_keyboard_manager not available".
++//
++// Deliberately NOT routed through wlserver_new_input(): that path forces the
++// compositor keymap onto the device so it can join the keyboard group, which
++// would reinterpret the keycodes a virtual keyboard sends under its own keymap.
++// wlserver_key() sidesteps the group entirely and keeps hotkey handling.
++struct wlserver_virtual_keyboard {
++	struct wlr_virtual_keyboard_v1 *wlr;
++	struct wl_listener key;
++	struct wl_listener destroy;
++};
++
++static void wlserver_handle_virtual_keyboard_key(struct wl_listener *listener, void *data)
++{
++	struct wlserver_virtual_keyboard *vkbd = wl_container_of(listener, vkbd, key);
++	struct wlr_keyboard_key_event *event = (struct wlr_keyboard_key_event *) data;
++
++	wlserver_key( event->keycode, event->state == WL_KEYBOARD_KEY_STATE_PRESSED, event->time_msec );
++}
++
++static void wlserver_handle_virtual_keyboard_destroy(struct wl_listener *listener, void *data)
++{
++	struct wlserver_virtual_keyboard *vkbd = wl_container_of(listener, vkbd, destroy);
++
++	wl_list_remove( &vkbd->key.link );
++	wl_list_remove( &vkbd->destroy.link );
++	free( vkbd );
++}
++
++static void wlserver_new_virtual_keyboard(struct wl_listener *listener, void *data)
++{
++	struct wlr_virtual_keyboard_v1 *wlr_vkbd = (struct wlr_virtual_keyboard_v1 *) data;
++
++	struct wlserver_virtual_keyboard *vkbd =
++		(struct wlserver_virtual_keyboard *) calloc( 1, sizeof( struct wlserver_virtual_keyboard ) );
++	if ( !vkbd )
++		return;
++
++	vkbd->wlr = wlr_vkbd;
++
++	vkbd->key.notify = wlserver_handle_virtual_keyboard_key;
++	wl_signal_add( &wlr_vkbd->keyboard.events.key, &vkbd->key );
++	vkbd->destroy.notify = wlserver_handle_virtual_keyboard_destroy;
++	wl_signal_add( &wlr_vkbd->keyboard.base.events.destroy, &vkbd->destroy );
++}
++
++static struct wl_listener new_virtual_keyboard_listener = { .notify = wlserver_new_virtual_keyboard };
++
+ wlserver_wl_surface_info *get_wl_surface_info(struct wlr_surface *wlr_surf)
+ {
+ 	if (!wlr_surf)
+@@ -2085,6 +2138,14 @@ bool wlserver_init( void ) {
+ 	wl_signal_add(&wlserver.xdg_shell->events.new_surface, &wlserver.new_xdg_surface);
+ 	wl_signal_add(&wlserver.xdg_shell->events.new_toplevel, &wlserver.new_xdg_toplevel);
+ 
++	wlserver.virtual_keyboard_manager_v1 = wlr_virtual_keyboard_manager_v1_create(wlserver.display);
++	if (!wlserver.virtual_keyboard_manager_v1)
++	{
++		wl_log.errorf("Failed to create virtual keyboard manager");
++		return false;
++	}
++	wl_signal_add(&wlserver.virtual_keyboard_manager_v1->events.new_virtual_keyboard, &new_virtual_keyboard_listener);
++
+ 	wlserver.layer_shell_v1 = wlr_layer_shell_v1_create(wlserver.display, 4);
+ 	if (!wlserver.layer_shell_v1)
+ 	{
+diff --git a/src/wlserver.hpp b/src/wlserver.hpp
+index 8e8715d..b9e6377 100644
+--- a/src/wlserver.hpp
++++ b/src/wlserver.hpp
+@@ -178,6 +178,7 @@ struct wlserver_t {
+ 
+ 	struct wlr_xdg_shell *xdg_shell;
+ 	struct wlr_layer_shell_v1 *layer_shell_v1;
++	struct wlr_virtual_keyboard_manager_v1 *virtual_keyboard_manager_v1;
+ 	struct wlr_relative_pointer_manager_v1 *relative_pointer_manager;
+ 	struct wlr_pointer_constraints_v1 *constraints;
+ 	struct wl_listener new_xdg_surface;
+-- 
+2.39.5 (Apple Git-154)
+
