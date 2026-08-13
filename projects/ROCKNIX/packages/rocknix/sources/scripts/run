@@ -18,7 +18,13 @@ then
   else
     weston-terminal --command="${*}"
   fi
-elif echo "${UI_SERVICE}" | grep "sway"; then
+elif [ "$(compositor)" != "none" ]; then
+  # sway and gamescope alike: run it in a terminal window on top of the running
+  # compositor. Matching on the literal string "sway" used to be enough; under
+  # gamescope it silently fell through to the branch below, which stops
+  # ${UI_SERVICE} - that is, kills the compositor - and then tries to draw on
+  # /dev/console underneath it. runemu.sh calls this path after every single
+  # game when cloud backup is on.
   if [ -f "${*}" ]
   then
     foot -F "${*}"

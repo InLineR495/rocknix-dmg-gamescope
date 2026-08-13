@@ -23,15 +23,22 @@ card=/sys/class/drm/card${card_no}
 
 ### Scan connectors. Internal panel (DSI) is remembered separately, external
 ### outputs win when present so docking still works.
+###
+### Dual-screen caveat, and it is a real one: several SM8550 devices have two
+### DSI panels (AYANEO Pocket DS, AYN Thor), and this whole platform now builds
+### with gamescope, which drives ONE output. Those devices lose their second
+### screen. Sorting makes the primary deterministic - DSI-1, the top panel on
+### every such device - instead of whatever the directory glob happened to
+### return last, which is how the second panel would otherwise win.
 dsi=""
 external=""
-for connector in ${card}/card${card_no}*/; do
+for connector in $(ls -d ${card}/card${card_no}*/ 2>/dev/null | sort); do
     [ -e "${connector}/status" ] || continue
     [ "$(cat "${connector}/status")" = "connected" ] || continue
     con=$(basename "${connector}")
     con=${con: +6}
     case "${con}" in
-        DSI*) dsi="${con}" ;;
+        DSI*) [ -z "${dsi}" ] && dsi="${con}" ;;
         *)    external="${con}" ;;
     esac
 done

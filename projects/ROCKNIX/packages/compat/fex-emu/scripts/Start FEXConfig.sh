@@ -14,8 +14,10 @@ if [ ! -d "/storage/.config/fex-emu" ]; then
     cp -r "/usr/config/fex-emu" "/storage/.config/"
 fi
 ${GPTOKEYB} fexconfig -c /storage/.config/fex-emu/gptk/fexconfig.gptk &
-# Route through the helper instead of calling swaymsg directly: it already
-# knows which compositor is running, and does the right nothing under gamescope.
-sway_fullscreen "FEXConfig"
+# Left as a for_window RULE rather than routed through sway_fullscreen(): the
+# rule fires when the window appears, while sway_fullscreen queries the tree
+# that exists right now - and right now FEXConfig has not been launched yet.
+# Under gamescope nothing is needed, the client gets the whole output anyway.
+[ "$(compositor)" = "sway" ] && swaymsg for_window [app_id="FEXConfig"] fullscreen enable
 /usr/bin/FEXConfig
 kill -9 $(pidof gptokeyb)

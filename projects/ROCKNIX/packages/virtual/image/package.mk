@@ -20,7 +20,11 @@ PKG_DEPENDS_TARGET="toolchain squashfs-tools:host dosfstools:host fakeroot:host 
 # matter what WINDOWMANAGER says - the switch to gamescope would silently do
 # nothing. On-screen notifications are a sway-era feature here; gamescope
 # sessions go without.
-if [ "${WINDOWMANAGER}" = "swaywm-env" ]; then
+#
+# Matched by word rather than by string: RK3588 sets
+# WINDOWMANAGER="weston swaywm-env", and an equality test would quietly drop
+# mako-osd from a device this change has nothing to do with.
+if listcontains "${WINDOWMANAGER}" "swaywm-env"; then
   PKG_DEPENDS_TARGET+=" mako-osd"
 fi
 

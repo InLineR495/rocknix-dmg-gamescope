@@ -7,7 +7,15 @@ STEAM_MAIN_SCRIPT=${0}
 STEAM_FLAVOR=arm64
 
 source /etc/profile
-set_kill set "gamescope steam FEX"
+# "gamescope" is in this list because start_steam.sh used to launch a nested one
+# that had to be cleaned up. When gamescope IS the session compositor, the exit
+# hotkey would kill the compositor instead - taking EmulationStation and the
+# whole session with it, on a unit that restarts forever.
+if [ "$(compositor)" = "gamescope" ]; then
+  set_kill set "steam FEX"
+else
+  set_kill set "gamescope steam FEX"
+fi
 
 # shellcheck source=start_steam.sh
 . /usr/bin/start_steam.sh

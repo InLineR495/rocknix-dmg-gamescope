@@ -1655,7 +1655,10 @@ makeinstall_target() {
 
   if [ "${WINDOWMANAGER}" = "weston" ]; then
     sed -i 's~%RUNCOMMAND%~weston-terminal --command="%ROM%"~g' ${INSTALL}/usr/config/emulationstation/es_systems.cfg
-  elif [ "${WINDOWMANAGER}" = "swaywm-env" ]; then
+  elif [ "${WINDOWMANAGER}" = "swaywm-env" -o "${WINDOWMANAGER}" = "gamescope-env" ]; then
+    # gamescope keeps foot too. Without this branch the else below hands ES
+    # `/usr/bin/run %ROM%`, and run's fallback path stops the compositor to draw
+    # on the console - so opening anything from Tools would kill the session.
     sed -i 's~%RUNCOMMAND%~/usr/bin/foot %ROM%~g' ${INSTALL}/usr/config/emulationstation/es_systems.cfg
   else
     sed -i 's~%RUNCOMMAND%~/usr/bin/run %ROM%~g' ${INSTALL}/usr/config/emulationstation/es_systems.cfg
