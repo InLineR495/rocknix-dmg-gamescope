@@ -65,6 +65,10 @@ jobs:
         run: rm build.aarch64.tar
 
       - name: Build
+        # Step-level cap so a run that would hit the 6h job wall fails here
+        # instead, leaving the if-always ccache steps below time to save
+        # partial state - the retry run then converges instead of looping cold.
+        timeout-minutes: 300
         uses: corrupt952/actions-retry-command@v1.0.7
         with:
           command: |
@@ -88,6 +92,7 @@ jobs:
             ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.threads/logs/
 
       - name: Clean ccache
+        if: always()
         run: |
           export CCACHE_DIR=./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.ccache
           ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/toolchain/bin/ccache -s -v
@@ -97,10 +102,22 @@ jobs:
           ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/toolchain/bin/ccache -z
 
       - name: Tar ccache
+        if: always()
         run: |
-          tar --remove-files -cf ccache-aarch64-${{ inputs.DEVICE }}-qt6.tar ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.ccache 
+          tar --remove-files -cf ccache-aarch64-${{ inputs.DEVICE }}-qt6.tar ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.ccache
+
+      # continue-on-error on the release action means a missing/powerless
+      # GH_PAT loses the ccache while the step still shows green - make that
+      # failure mode visible.
+      - name: Warn if GH_PAT is missing
+        if: always()
+        env:
+          PAT: ${{ secrets.GH_PAT }}
+        run: |
+          [ -n "$PAT" ] || echo "::warning::GH_PAT is empty - ccache will NOT be saved to the cache repository"
 
       - name: Save ccache
+        if: always()
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ccache
