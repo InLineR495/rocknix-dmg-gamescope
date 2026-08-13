@@ -48,8 +48,13 @@
   # Displayserver to use (wl / no)
     DISPLAYSERVER="wl"
 
-  # Windowmanager to use (weston / swaywm-env / no)
-    WINDOWMANAGER="swaywm-env"
+  # Windowmanager to use (weston / swaywm-env / gamescope-env / no)
+  #
+  # gamescope-env instead of swaywm-env: on this SoC the sway -> msm_dpu path
+  # rejects page flips (26-83 "atomic commit failed" per minute), which no
+  # amount of RetroArch tuning could fix because it sits below the emulator.
+  # The same panel under gamescope-as-DRM-owner measures zero.
+    WINDOWMANAGER="gamescope-env"
 
   # Additional drivers to install:
   # for a list of additional drivers see packages/linux-drivers

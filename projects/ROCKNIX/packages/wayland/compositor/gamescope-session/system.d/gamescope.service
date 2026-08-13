@@ -1,0 +1,24 @@
+[Unit]
+Description=Gamescope Session Compositor
+Before=graphical.target
+After=multi-user.target rocknix-automount.service seatd.service
+Wants=seatd.service
+ConditionKernelCommandLine=!installer
+# Backstop against an unkillable restart loop with no UI. A healthy session runs
+# for hours, so six starts inside five minutes can only mean it is not coming up.
+# The session script has its own, gentler guard that fires first and turns SSH on.
+StartLimitIntervalSec=300
+StartLimitBurst=6
+
+[Service]
+Environment=HOME=/storage
+Environment=XDG_RUNTIME_DIR=/var/run/0-runtime-dir
+EnvironmentFile=-/storage/.config/profile.d/095-gamescope
+WorkingDirectory=/storage
+ExecStart=/usr/bin/gamescope-session.sh
+Restart=always
+RestartSec=5
+
+[Install]
+Alias=display-manager.service
+WantedBy=graphical.target

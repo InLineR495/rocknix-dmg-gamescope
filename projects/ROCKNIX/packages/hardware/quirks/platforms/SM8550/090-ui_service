@@ -3,6 +3,11 @@
 # Copyright (C) 2024 ROCKNIX (https://github.com/ROCKNIX)
 
 ### Set the default device configuration
+###
+### gamescope.service starts EmulationStation itself, as its own client, so
+### there is no separate frontend unit here the way essway.service followed
+### sway.service. The handshake that tells the client where the compositor is
+### only works inside one process tree.
 cat <<EOF >/storage/.config/profile.d/090-ui_service
-UI_SERVICE="sway.service essway.service"
+UI_SERVICE="gamescope.service"
 EOF

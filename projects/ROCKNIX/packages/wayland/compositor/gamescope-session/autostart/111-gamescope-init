@@ -1,0 +1,129 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2026 ROCKNIX (https://github.com/ROCKNIX)
+#
+# Writes a flat hardware passport for the gamescope session, the way ArmadaOS
+# does it in /usr/libexec/armada/device-env. The session file only translates
+# these values into gamescope arguments, so adding a device means adding lines
+# here and nothing else.
+#
+# Runs from /usr/bin/autostart, i.e. before `systemctl start ${UI_SERVICE}`.
+
+. /etc/profile
+
+RUNDIR=/var/run/gamescope
+ENVFILE=${RUNDIR}/device-env
+
+mkdir -p "${RUNDIR}"
+rm -f "${ENVFILE}"
+
+### Pick the card the display sits on.
+card_no=$(ls /sys/class/drm/ | grep -E "DP|HDMI|DSI" | head -n 1 | cut -b 5)
+card=/sys/class/drm/card${card_no}
+
+### Scan connectors. Internal panel (DSI) is remembered separately, external
+### outputs win when present so docking still works.
+dsi=""
+external=""
+for connector in ${card}/card${card_no}*/; do
+    [ -e "${connector}/status" ] || continue
+    [ "$(cat "${connector}/status")" = "connected" ] || continue
+    con=$(basename "${connector}")
+    con=${con: +6}
+    case "${con}" in
+        DSI*) dsi="${con}" ;;
+        *)    external="${con}" ;;
+    esac
+done
+
+### Preference order handed to gamescope -O: external first, panel as fallback.
+if [ -n "${external}" ] && [ -n "${dsi}" ]; then
+    GS_OUTPUTS="${external},${dsi}"
+    GS_CONNECTOR="${external}"
+elif [ -n "${external}" ]; then
+    GS_OUTPUTS="${external}"
+    GS_CONNECTOR="${external}"
+else
+    GS_OUTPUTS="${dsi}"
+    GS_CONNECTOR="${dsi}"
+fi
+
+### Panel geometry, straight from the connector's mode list. These are the
+### *physical* numbers; gamescope rotates on top of them.
+GS_WIDTH=""
+GS_HEIGHT=""
+modes=${card}/card${card_no}-${GS_CONNECTOR}/modes
+if [ -r "${modes}" ]; then
+    mode=$(head -n 1 "${modes}")
+    GS_WIDTH=${mode%x*}
+    GS_HEIGHT=${mode#*x}
+fi
+
+### Rotation. sway derived this from the framebuffer console; gamescope wants
+### the panel's mounting orientation instead, so the values are mapped rather
+### than passed through.
+###
+### fbcon/rotate  sway transform  gamescope --force-orientation
+###      0              0               normal
+###      1             90               right
+###      2            180               upsidedown
+###      3            270               left
+GS_ORIENTATION="normal"
+if [ -n "${dsi}" ] && [ "${GS_CONNECTOR}" = "${dsi}" ]; then
+    rot=$(cat /sys/class/graphics/fbcon/rotate 2>/dev/null)
+    case "${rot}" in
+        1) GS_ORIENTATION="right" ;;
+        2) GS_ORIENTATION="upsidedown" ;;
+        3) GS_ORIENTATION="left" ;;
+        *) GS_ORIENTATION="normal" ;;
+    esac
+fi
+
+### A rotated panel has no direct scanout path, so the output has to go through
+### the rotation shader (patch 0005). Costs a pass, but it is the only way the
+### image lands upright.
+GS_ROTATION_SHADER=0
+case "${GS_ORIENTATION}" in
+    left|right|upsidedown) GS_ROTATION_SHADER=1 ;;
+esac
+
+### Refresh rate, only when the user pinned one. Otherwise let the panel driver
+### decide, same as sway did.
+GS_REFRESH=""
+DISPLAY_MODE=$(get_setting system.display_mode)
+if [ -n "${DISPLAY_MODE}" ]; then
+    GS_REFRESH=$(echo "${DISPLAY_MODE}" | tr -cd '[[:digit:]].')
+fi
+
+### Per-device overrides live here, mirroring the quirk blocks 111-sway-init had.
+case "${QUIRK_DEVICE}" in
+    "AYANEO Pocket DMG")
+        # Verified against ArmadaOS on this exact unit: DSI-1, 1080x1240 panel
+        # mounted rotated, rotation shader on.
+        GS_CONNECTOR="DSI-1"
+        GS_OUTPUTS="DSI-1"
+        GS_WIDTH="1080"
+        GS_HEIGHT="1240"
+        GS_ORIENTATION="left"
+        GS_ROTATION_SHADER=1
+        ;;
+esac
+
+{
+    echo "GS_CONNECTOR=${GS_CONNECTOR}"
+    echo "GS_OUTPUTS=${GS_OUTPUTS}"
+    echo "GS_WIDTH=${GS_WIDTH}"
+    echo "GS_HEIGHT=${GS_HEIGHT}"
+    echo "GS_ORIENTATION=${GS_ORIENTATION}"
+    echo "GS_ROTATION_SHADER=${GS_ROTATION_SHADER}"
+    echo "GS_REFRESH=${GS_REFRESH}"
+} >"${ENVFILE}"
+
+### Desktop mode used to be a second sway config. There is no desktop under
+### gamescope, so the toggle is honoured by simply not claiming it worked.
+if [ "$(get_setting desktop.enabled)" = "1" ]; then
+    echo "gamescope session: desktop mode is not available without sway, staying in game mode"
+    set_setting desktop.enabled "0"
+fi
+
+cat "${ENVFILE}"
