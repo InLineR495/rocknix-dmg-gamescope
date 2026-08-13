@@ -61,7 +61,23 @@ fi
 ################################################################################
 # Hardware passport, written each boot by 111-gamescope-init.
 ################################################################################
-[ -f "${RUNDIR}/device-env" ] && . "${RUNDIR}/device-env"
+### autostart writes the passport before `systemctl start ${UI_SERVICE}`, so
+### normally it is already there. The short wait covers a race on the first
+### start; a passport that never shows up is a real failure and is treated as
+### one below rather than silently starting gamescope with no output, no
+### geometry and no rotation - that is a black screen with nothing in the log.
+passport_wait=15
+while [ ! -s "${RUNDIR}/device-env" ] && [ "${passport_wait}" -gt 0 ]; do
+    sleep 1
+    passport_wait=$(( passport_wait - 1 ))
+done
+[ -s "${RUNDIR}/device-env" ] && . "${RUNDIR}/device-env"
+
+### On-device A/B without a rebuild: anything set here wins over the passport.
+### The first candidate to try on real hardware is GS_ROTATION_SHADER=0 -
+### Armada relies on DRM plane rotation autodetect instead of the shader, and
+### which path the DMG panel actually supports can only be measured there.
+[ -f /storage/.config/gamescope/device-env ] && . /storage/.config/gamescope/device-env
 
 : "${GS_CONNECTOR:=}"
 : "${GS_OUTPUTS:=${GS_CONNECTOR}}"
@@ -71,6 +87,12 @@ fi
 : "${GS_ROTATION_SHADER:=0}"
 : "${GS_REFRESH:=}"
 : "${GS_FAKE_OUTPUT_MM:=}"
+
+if [ -z "${GS_CONNECTOR}" ]; then
+    echo "no display passport (${RUNDIR}/device-env missing or empty), refusing to start blind"
+    echo "$(date +%s)" >>"${TRACKER}"
+    exit 1
+fi
 
 ### The client. Kept as a variable so a second session (desktop, a different
 ### frontend) is a one-line change rather than a fork of this script.
@@ -106,6 +128,20 @@ mkdir -p "$(dirname "${GAMESCOPE_MODE_SAVE_FILE}")"
 
 ### seatd hands out the DRM master lease.
 export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-seatd}"
+
+### Every client in this session is SDL2 (ES and the emulators). Without this
+### SDL minimizes on focus loss, which inside a one-fullscreen-window
+### compositor reads as the UI vanishing to a black screen.
+export SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0
+
+### Qt applications in the image (qterminal, FEXConfig) go through Xwayland,
+### matching Armada's session.
+export QT_QPA_PLATFORM=xcb
+
+### gamescope rewrites the panel EDID when rotating (WritePatchedEdid) so
+### clients see width/height swapped to match; it needs somewhere to put it.
+export GAMESCOPE_PATCHED_EDID_FILE="${RUNDIR}/edid.bin"
+touch "${GAMESCOPE_PATCHED_EDID_FILE}"
 
 ### The DMG panel reports its physical size as 0x0 mm (see the panel driver
 ### patch, 0052-gpu-panel-add-Pocket-DMG-panel-driver), which makes gamescope
@@ -168,6 +204,9 @@ stats="${RUNDIR}/stats.fifo"
 rm -f "${socket}" "${stats}"
 mkfifo -- "${socket}" "${stats}"
 
+### mangoapp and gamescopectl locate the stats fifo through this.
+export GAMESCOPE_STATS="${stats}"
+
 session_start=$(date +%s)
 
 ### Three variables are stripped from gamescope's own environment, and only
@@ -226,8 +265,16 @@ session_length=$(( session_end - session_start ))
 echo "=== session ended after ${session_length}s, client exit ${client_status}"
 
 ### Only consecutive short sessions matter: one good long run clears the count.
+### A short session counts as a failure only when it looks like one: the client
+### died with an error, or the compositor is gone. A clean ES exit seconds
+### after start is somebody restarting the UI from the settings menu - five of
+### those in a row must not walk a healthy device into the gave-up state.
+### (The gamescope check runs before the EXIT trap kills it, so a live pid here
+### really means the compositor survived the whole session.)
 if [ "${session_length}" -lt "${SHORT_SESSION_SECONDS}" ]; then
-    echo "${session_end}" >>"${TRACKER}"
+    if [ "${client_status}" -ne 0 ] || ! kill -0 "${gamescope_pid}" 2>/dev/null; then
+        echo "${session_end}" >>"${TRACKER}"
+    fi
 else
     rm -f "${TRACKER}"
 fi

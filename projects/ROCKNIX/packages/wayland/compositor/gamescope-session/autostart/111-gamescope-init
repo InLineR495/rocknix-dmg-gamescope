@@ -27,9 +27,10 @@ card=/sys/class/drm/card${card_no}
 ### Dual-screen caveat, and it is a real one: several SM8550 devices have two
 ### DSI panels (AYANEO Pocket DS, AYN Thor), and this whole platform now builds
 ### with gamescope, which drives ONE output. Those devices lose their second
-### screen. Sorting makes the primary deterministic - DSI-1, the top panel on
-### every such device - instead of whatever the directory glob happened to
-### return last, which is how the second panel would otherwise win.
+### screen. Sorting makes the primary deterministic instead of whatever the
+### directory glob happened to return last. Which DSI is the top panel is a
+### per-device fact (Pocket DS: DSI-1, Thor: DSI-2!) and comes from the device
+### table below, not from this scan.
 dsi=""
 external=""
 for connector in $(ls -d ${card}/card${card_no}*/ 2>/dev/null | sort); do
@@ -105,22 +106,76 @@ fi
 ### Physical panel size. Only needed where the panel driver lies about it.
 GS_FAKE_OUTPUT_MM=""
 
-### Per-device overrides live here, mirroring the quirk blocks 111-sway-init had.
+### Per-device panel truth. Connector, native geometry and mounting orientation
+### are lifted from ArmadaOS's device table (usr/lib/armada/devices/*.conf),
+### which runs gamescope on these exact units - including AYN Thor, whose TOP
+### panel is DSI-2 (mdss_dsi1), disproving the "first DSI is always the top
+### panel" assumption the generic scan makes. Only the panel is described here;
+### which output actually drives is decided after the case, so an external
+### display keeps winning and docking still works.
+PANEL_CONNECTOR=""
+PANEL_WIDTH=""
+PANEL_HEIGHT=""
+PANEL_ORIENTATION=""
+PANEL_FAKE_MM=""
 case "${QUIRK_DEVICE}" in
     "AYANEO Pocket DMG")
         # Verified against ArmadaOS on this exact unit: DSI-1, 1080x1240 panel
-        # mounted rotated, rotation shader on.
-        GS_CONNECTOR="DSI-1"
-        GS_OUTPUTS="DSI-1"
-        GS_WIDTH="1080"
-        GS_HEIGHT="1240"
-        GS_ORIENTATION="left"
-        GS_ROTATION_SHADER=1
-        # The panel driver reports width_mm=0 height_mm=0, so gamescope derives
-        # a nonsense DPI from it. Same value start_steam.sh already uses here.
-        GS_FAKE_OUTPUT_MM="508x286"
+        # mounted rotated. The panel driver reports width_mm=0 height_mm=0, so
+        # gamescope derives a nonsense DPI from it; same fake value
+        # start_steam.sh already uses here (Armada uses 177x100 - same aspect,
+        # different Steam UI scale; check on the device which looks right).
+        PANEL_CONNECTOR="DSI-1"; PANEL_WIDTH=1080;  PANEL_HEIGHT=1240
+        PANEL_ORIENTATION="left";  PANEL_FAKE_MM="508x286"
+        ;;
+    "AYANEO Pocket ACE")
+        PANEL_CONNECTOR="DSI-1"; PANEL_WIDTH=1080;  PANEL_HEIGHT=1620
+        PANEL_ORIENTATION="right"
+        ;;
+    "AYANEO Pocket EVO")
+        PANEL_CONNECTOR="DSI-1"; PANEL_WIDTH=1080;  PANEL_HEIGHT=1920
+        PANEL_ORIENTATION="left"
+        ;;
+    "AYANEO Pocket DS")
+        # Dual screen; DSI-1 is the top panel. The bottom one stays dark under
+        # gamescope - accepted platform-wide tradeoff of this fork.
+        PANEL_CONNECTOR="DSI-1"; PANEL_WIDTH=1080;  PANEL_HEIGHT=1920
+        PANEL_ORIENTATION="left"
+        ;;
+    "AYN Odin 2")
+        PANEL_CONNECTOR="DSI-1"; PANEL_WIDTH=1080;  PANEL_HEIGHT=1920
+        PANEL_ORIENTATION="right"; PANEL_FAKE_MM="177x100"
+        ;;
+    "AYN Odin 2 Portal")
+        PANEL_CONNECTOR="DSI-1"; PANEL_WIDTH=1080;  PANEL_HEIGHT=1920
+        PANEL_ORIENTATION="left"
+        ;;
+    "AYN Thor")
+        # Dual screen: top panel is DSI-2 (mdss_dsi1), bottom is DSI-1.
+        PANEL_CONNECTOR="DSI-2"; PANEL_WIDTH=1080;  PANEL_HEIGHT=1920
+        PANEL_ORIENTATION="right"
         ;;
 esac
+
+if [ -n "${PANEL_CONNECTOR}" ]; then
+    if [ -n "${external}" ]; then
+        ### Docked: the external display drives with its own scanned mode and
+        ### no forced rotation; the panel stays as gamescope's fallback.
+        GS_CONNECTOR="${external}"
+        GS_OUTPUTS="${external},${PANEL_CONNECTOR}"
+    else
+        GS_CONNECTOR="${PANEL_CONNECTOR}"
+        GS_OUTPUTS="${PANEL_CONNECTOR}"
+        GS_WIDTH="${PANEL_WIDTH}"
+        GS_HEIGHT="${PANEL_HEIGHT}"
+        GS_ORIENTATION="${PANEL_ORIENTATION}"
+        GS_ROTATION_SHADER=0
+        case "${GS_ORIENTATION}" in
+            left|right|upsidedown) GS_ROTATION_SHADER=1 ;;
+        esac
+        GS_FAKE_OUTPUT_MM="${PANEL_FAKE_MM}"
+    fi
+fi
 
 {
     echo "GS_CONNECTOR=${GS_CONNECTOR}"

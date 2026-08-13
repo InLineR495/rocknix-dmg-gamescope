@@ -18,6 +18,12 @@ WorkingDirectory=/storage
 ExecStart=/usr/bin/gamescope-session.sh
 Restart=always
 RestartSec=5
+# The whole session tree (gamescope, two Xwaylands, ES, the emulator) lives
+# under this unit, and games chew through descriptors. Armada raises the same
+# limits for its session; the systemd default of 1024 soft shows up as random
+# session deaths - which our short-session guard would then count.
+LimitNOFILE=524288
+LimitMEMLOCK=infinity
 
 [Install]
 Alias=display-manager.service

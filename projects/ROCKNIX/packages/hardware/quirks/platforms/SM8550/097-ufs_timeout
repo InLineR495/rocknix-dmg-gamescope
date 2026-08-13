@@ -1,0 +1,11 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0
+# Copyright (C) 2026-present ROCKNIX (https://github.com/ROCKNIX)
+
+# SM8550 UFS needs up to 3 seconds for UIC command completion across suspend;
+# with the default the controller times out and storage drops after resume.
+# Same value ArmadaOS applies in its SM8550 device-quirks. The parameter only
+# exists on newer kernels, hence the guard.
+if [ -w /sys/module/ufshcd_core/parameters/uic_cmd_timeout ]; then
+  echo 3000 > /sys/module/ufshcd_core/parameters/uic_cmd_timeout
+fi
