@@ -51,7 +51,12 @@ then
       true
       ;;
     *)
-      PKG_DEPENDS_TARGET+=" ${WINDOWMANAGER}"
+      # gamescope itself depends on SDL2, so injecting gamescope-env here would
+      # close a cycle and the build plan would not resolve at all. sway has no
+      # such edge, hence the exception rather than a plain removal. The entry is
+      # build ordering inherited from LibreELEC: the compositor supplies SDL2
+      # with neither headers nor libraries.
+      [ "${WINDOWMANAGER}" = "gamescope-env" ] || PKG_DEPENDS_TARGET+=" ${WINDOWMANAGER}"
       ;;
   esac
   PKG_CMAKE_OPTS_TARGET+=" -DSDL_WAYLAND=ON \

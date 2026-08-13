@@ -13,7 +13,13 @@ PKG_TOOLCHAIN="cmake"
 PKG_CMAKE_OPTS_TARGET="-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
 
 if [ "${DISPLAYSERVER}" = "wl" ]; then
-  PKG_DEPENDS_TARGET+=" wayland ${WINDOWMANAGER} xwayland xrandr libXi libX11"
+  # Same cycle as in SDL2, one hop longer and correspondingly easier to miss:
+  # gamescope -> libdecor -> gtk3 -> glew -> gamescope-env -> gamescope.
+  if [ "${WINDOWMANAGER}" = "gamescope-env" ]; then
+    PKG_DEPENDS_TARGET+=" wayland xwayland xrandr libXi libX11"
+  else
+    PKG_DEPENDS_TARGET+=" wayland ${WINDOWMANAGER} xwayland xrandr libXi libX11"
+  fi
   PKG_CMAKE_OPTS_TARGET+=" -DGLEW_X11=ON"
 fi
 
