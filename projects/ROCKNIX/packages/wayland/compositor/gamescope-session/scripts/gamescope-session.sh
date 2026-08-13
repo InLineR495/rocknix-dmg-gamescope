@@ -70,6 +70,7 @@ fi
 : "${GS_ORIENTATION:=normal}"
 : "${GS_ROTATION_SHADER:=0}"
 : "${GS_REFRESH:=}"
+: "${GS_FAKE_OUTPUT_MM:=}"
 
 ### The client. Kept as a variable so a second session (desktop, a different
 ### frontend) is a one-line change rather than a fork of this script.
@@ -105,6 +106,12 @@ mkdir -p "$(dirname "${GAMESCOPE_MODE_SAVE_FILE}")"
 
 ### seatd hands out the DRM master lease.
 export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-seatd}"
+
+### The DMG panel reports its physical size as 0x0 mm (see the panel driver
+### patch, 0052-gpu-panel-add-Pocket-DMG-panel-driver), which makes gamescope
+### compute a nonsense DPI. Patch 0004 exists precisely to override it, and
+### start_steam.sh already relies on this value on this device.
+[ -n "${GS_FAKE_OUTPUT_MM}" ] && export GAMESCOPE_FAKE_OUTPUT_MM="${GS_FAKE_OUTPUT_MM}"
 
 if [ ! -S "${XDG_RUNTIME_DIR}/bus" ]; then
     dbus-daemon --session --address="unix:path=${XDG_RUNTIME_DIR}/bus" &
@@ -163,8 +170,20 @@ mkfifo -- "${socket}" "${stats}"
 
 session_start=$(date +%s)
 
+### Three variables are stripped from gamescope's own environment, and only
+### from gamescope's - the client below still needs all three:
+###
+###   WAYLAND_DISPLAY   present => gamescope comes up NESTED instead of taking
+###                     DRM, which is the exact failure this whole change exists
+###                     to avoid. start_steam.sh guards against it the same way.
+###   DISPLAY           same story for the X11 path.
+###   MESA_LOADER_DRIVER_OVERRIDE
+###                     the SM8550 quirk pins this to zink. gamescope talks to
+###                     Turnip directly and start_steam.sh unsets it before
+###                     launching gamescope for the same reason.
 echo "gamescope ${GAMESCOPE_ARGS} -R ${socket} -T ${stats}"
-/usr/bin/gamescope ${GAMESCOPE_ARGS} -R "${socket}" -T "${stats}" &
+env -u WAYLAND_DISPLAY -u DISPLAY -u MESA_LOADER_DRIVER_OVERRIDE \
+    /usr/bin/gamescope ${GAMESCOPE_ARGS} -R "${socket}" -T "${stats}" &
 gamescope_pid=$!
 
 if read -r -t 30 response_x_display response_wl_display <>"${socket}"; then

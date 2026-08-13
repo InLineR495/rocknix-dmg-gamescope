@@ -95,6 +95,9 @@ if [ -n "${DISPLAY_MODE}" ]; then
     GS_REFRESH=$(echo "${DISPLAY_MODE}" | tr -cd '[[:digit:]].')
 fi
 
+### Physical panel size. Only needed where the panel driver lies about it.
+GS_FAKE_OUTPUT_MM=""
+
 ### Per-device overrides live here, mirroring the quirk blocks 111-sway-init had.
 case "${QUIRK_DEVICE}" in
     "AYANEO Pocket DMG")
@@ -106,6 +109,9 @@ case "${QUIRK_DEVICE}" in
         GS_HEIGHT="1240"
         GS_ORIENTATION="left"
         GS_ROTATION_SHADER=1
+        # The panel driver reports width_mm=0 height_mm=0, so gamescope derives
+        # a nonsense DPI from it. Same value start_steam.sh already uses here.
+        GS_FAKE_OUTPUT_MM="508x286"
         ;;
 esac
 
@@ -117,6 +123,7 @@ esac
     echo "GS_ORIENTATION=${GS_ORIENTATION}"
     echo "GS_ROTATION_SHADER=${GS_ROTATION_SHADER}"
     echo "GS_REFRESH=${GS_REFRESH}"
+    echo "GS_FAKE_OUTPUT_MM=${GS_FAKE_OUTPUT_MM}"
 } >"${ENVFILE}"
 
 ### Desktop mode used to be a second sway config. There is no desktop under

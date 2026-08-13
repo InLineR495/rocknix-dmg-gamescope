@@ -13,7 +13,16 @@ PKG_DEPENDS_TARGET="toolchain squashfs-tools:host dosfstools:host fakeroot:host 
                     ${BOOTLOADER} busybox lsof umtprd util-linux usb-modeswitch poppler jq socat \
                     p7zip file initramfs grep util-linux btrfs-progs zstd lz4 empty lzo libzip \
                     bash coreutils system-utils autostart quirks powerstate sdl2notify \
-                    gzip six xmlstarlet pyudev dialog network mako-osd rocknix"
+                    gzip six xmlstarlet pyudev dialog network rocknix"
+
+# mako-osd used to sit in the list above, unconditionally. It depends on sway,
+# so leaving it there would drag the whole compositor back into the image no
+# matter what WINDOWMANAGER says - the switch to gamescope would silently do
+# nothing. On-screen notifications are a sway-era feature here; gamescope
+# sessions go without.
+if [ "${WINDOWMANAGER}" = "swaywm-env" ]; then
+  PKG_DEPENDS_TARGET+=" mako-osd"
+fi
 
 PKG_UI="emulationstation es-themes textviewer lowerdeck"
 
