@@ -251,6 +251,24 @@ fi
 ################################################################################
 cleanup() {
     kill "${gamescope_pid}" 2>/dev/null
+
+    ### NEVER block indefinitely here.
+    #
+    # Observed on the DMG: ES died with SIGSEGV, gamescope did not go down on
+    # SIGTERM (its teardown was already broken - "drmModeRmFB failed: Bad file
+    # descriptor" in the log), and the bare `wait` below kept THIS script alive.
+    # systemd then saw the unit as still active, so Restart=always never fired
+    # and the short-session guard never got a start to inspect. The device sat
+    # for ten hours with a live compositor, no client, and a black screen, and
+    # only came back because somebody had SSH.
+    #
+    # Give it a fair chance to exit, then stop being polite.
+    for _ in $(seq 1 20); do
+        kill -0 "${gamescope_pid}" 2>/dev/null || break
+        sleep 0.5
+    done
+    kill -9 "${gamescope_pid}" 2>/dev/null
+
     wait "${gamescope_pid}" 2>/dev/null
     rm -f "${socket}" "${stats}" "${RUNDIR}/env"
 }
