@@ -81,6 +81,54 @@ backlight_on() {
   done
 }
 
+### Dimming, for sessions with no compositor-side DPMS to ask for.
+#
+# sway had `swaymsg output * power off` and weston has weston-dpms; gamescope
+# has neither, and it holds DRM master, so nothing else can touch the connector
+# DPMS property either. That leaves sysfs - but bl_power on the DMG panel is
+# ONE-WAY: writing 4 blanks the panel, writing 0 back returns EINVAL and the
+# panel stays dark until the next modeset (i.e. until the session restarts).
+# That is exactly how a device comes back from sleep with a live system and a
+# black screen.
+#
+# brightness is symmetric and leaves the panel powered, so use it instead and
+# remember the level to restore. Verified on the DMG panel: 512 -> 0 -> 512
+# with no errors, while bl_power 4 -> 0 fails every time.
+BL_LEVEL_STATE_DIR=/var/run/rocknix-backlight
+
+backlight_dim() {
+  ${DEBUG} && log $0 "Backlight dim (brightness)"
+  mkdir -p "${BL_LEVEL_STATE_DIR}"
+
+  for BL_DEVICE in /sys/class/backlight/*/; do
+    [[ -w "${BL_DEVICE}brightness" ]] || continue
+    BL_NAME=$(basename "${BL_DEVICE}")
+    ### Do not save a level of 0 over a real one: a second dim before the undim
+    ### would otherwise leave nothing to restore and the screen would stay dark.
+    BL_LEVEL=$(cat "${BL_DEVICE}brightness" 2>/dev/null)
+    [[ -n "${BL_LEVEL}" && "${BL_LEVEL}" -gt 0 ]] && \
+      echo "${BL_LEVEL}" > "${BL_LEVEL_STATE_DIR}/${BL_NAME}"
+    echo 0 > "${BL_DEVICE}brightness" 2>/dev/null
+  done
+}
+
+backlight_undim() {
+  ${DEBUG} && log $0 "Backlight undim (brightness)"
+
+  for BL_DEVICE in /sys/class/backlight/*/; do
+    [[ -w "${BL_DEVICE}brightness" ]] || continue
+    BL_NAME=$(basename "${BL_DEVICE}")
+    BL_LEVEL=$(cat "${BL_LEVEL_STATE_DIR}/${BL_NAME}" 2>/dev/null)
+    ### No saved level (first boot, /var/run cleared) must still give a usable
+    ### screen, so fall back to half of max rather than leaving it at 0.
+    if [[ -z "${BL_LEVEL}" || "${BL_LEVEL}" -le 0 ]]; then
+      BL_MAX=$(cat "${BL_DEVICE}max_brightness" 2>/dev/null)
+      [[ -n "${BL_MAX}" && "${BL_MAX}" -gt 0 ]] && BL_LEVEL=$(( BL_MAX / 2 )) || BL_LEVEL=512
+    fi
+    echo "${BL_LEVEL}" > "${BL_DEVICE}brightness" 2>/dev/null
+  done
+}
+
 display_off() {
   if [[ "${ENABLE_DPMS}" == "1" ]]; then
     # DPMS enabled, use it to turn off the display
@@ -91,13 +139,20 @@ display_off() {
       swaymsg "output * power off"
     elif [[ -n $(echo "${UI_SERVICE}" | grep "weston") && -n $(pgrep "weston") ]]; then
       weston-dpms -m off
+    elif [[ -n $(echo "${UI_SERVICE}" | grep "gamescope") ]]; then
+      ### No compositor-side DPMS here and bl_power is one-way on this panel.
+      backlight_dim
     else
       # Fallback - just turn off the backlight
       backlight_off
     fi
   else
     # DPMS disabled, just turn off the backlight
-    backlight_off
+    if [[ -n $(echo "${UI_SERVICE}" | grep "gamescope") ]]; then
+      backlight_dim
+    else
+      backlight_off
+    fi
   fi
 }
 
@@ -111,12 +166,18 @@ display_on() {
       swaymsg "output * power on"
     elif [[ -n $(echo "${UI_SERVICE}" | grep "weston") && -n $(pgrep "weston") ]]; then
       weston-dpms -m on
+    elif [[ -n $(echo "${UI_SERVICE}" | grep "gamescope") ]]; then
+      backlight_undim
     else
       backlight_on
     fi
   else
     # Fallback - just turn on the backlight
-    backlight_on
+    if [[ -n $(echo "${UI_SERVICE}" | grep "gamescope") ]]; then
+      backlight_undim
+    else
+      backlight_on
+    fi
   fi
 }
 
