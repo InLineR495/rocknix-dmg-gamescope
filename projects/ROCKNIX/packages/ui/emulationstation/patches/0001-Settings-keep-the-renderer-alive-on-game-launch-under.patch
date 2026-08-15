@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: c <a@b>
+Date: Sat, 15 Aug 2026 11:20:00 +0300
+Subject: [PATCH] Settings: keep the renderer alive on game launch under
+ gamescope
+
+Launching any game from the UI killed EmulationStation outright: black
+screen, session restart, no game. Caught under gdb on the DMG - ES logs
+"Interrupt signal SIGSEGV received" from its own handler and exits, so
+the kernel never writes a core and the fault has to be trapped before
+that handler sees it:
+
+  #0  wl_proxy_marshal_flags () from /usr/lib/libwayland-client.so.0
+  #1  ?? () from /usr/lib/libSDL2-2.0.so.0
+  #2  ?? () from /usr/lib/libSDL2-2.0.so.0
+  #3..#10 emulationstation
+  #11 main ()
+
+HideWindow defaults to true on everything that is not x86, and it makes
+FileData::launchGame() call Window::deinit(true) before every launch,
+which runs Renderer::deinit() and tears the SDL2 window down, then
+rebuilds it on return. ROCKNIX builds SDL2 with VIDEO_X11=OFF, so in
+this session SDL2 is a native Wayland client talking to gamescope: the
+teardown leaves a dangling proxy and the next wl_proxy_marshal_flags()
+runs on freed memory. The session log shows the matching
+"[Gamescope WSI] Destroying swapchain" immediately before each crash.
+
+x86 has always defaulted this to false, so the no-teardown path is the
+well-travelled one rather than an experiment. Take it whenever a
+gamescope session is what we are running inside: Window::deinit(false)
+then only drops resources and Window::init(false) calls
+Renderer::activateWindow(), so no window is destroyed and SDL2 has
+nothing to dangle.
+
+Keyed on GAMESCOPE_WAYLAND_DISPLAY, which the session exports as part of
+its handshake, so this stays inert on sway and weston builds.
+
+Verified on the AYANEO Pocket DMG: ES now launches RetroArch from the UI
+and survives the return, with the session restart counter still at zero,
+where the same action crashed ES every time before. Frame pacing under
+load is unaffected - "atomic commit failed" stays at 0.
+---
+ es-core/src/Settings.cpp | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/es-core/src/Settings.cpp b/es-core/src/Settings.cpp
+--- a/es-core/src/Settings.cpp
++++ b/es-core/src/Settings.cpp
+@@ -7,6 +7,7 @@
+ #include <pugixml/src/pugixml.hpp>
+ #include <algorithm>
+ #include <vector>
++#include <cstdlib>
+ #include "utils/StringUtil.h"
+ #include "Paths.h"
+ #include "../es-app/src/ApiSystem.h"
+@@ -352,7 +353,13 @@
+ #if defined(_WIN32) || defined(X86) || defined(X86_64)
+ 	mBoolMap["HideWindow"] = false;
+ #else
+-	mBoolMap["HideWindow"] = true;
++	// Under a gamescope session this has to be false, exactly as on x86.
++	// With it true, launchGame() calls Window::deinit(true) every time, which
++	// runs Renderer::deinit() and tears down the SDL2 window. SDL2 here is a
++	// native Wayland client (VIDEO_X11=OFF), so the teardown leaves a dangling
++	// proxy and the next wl_proxy_marshal_flags() segfaults inside
++	// libwayland-client: ES dies and the user gets a black screen, not a game.
++	mBoolMap["HideWindow"] = (getenv("GAMESCOPE_WAYLAND_DISPLAY") == nullptr);
+ #endif
+ 
+ 	mBoolMap["HideWindowFullReinit"] = false;
+-- 
+2.43.0
+
