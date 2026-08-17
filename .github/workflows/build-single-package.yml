@@ -1,0 +1,123 @@
+name: Build single package
+
+# Build one package and hand back just its binaries, so a compositor-level fix
+# can be tried on the device without waiting ~14h for a whole image. The build
+# system still pulls in whatever that package depends on, but that is a small
+# fraction of a full run: no kernel, no emulators, no Qt.
+#
+# Drop the result over the read-only /usr on the device with a bind mount.
+
+on:
+  workflow_dispatch:
+    inputs:
+      PACKAGE:
+        description: "Package to build (e.g. gamescope)"
+        type: string
+        required: true
+        default: gamescope
+      DEVICE:
+        description: "Device"
+        type: string
+        required: true
+        default: SM8550
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      EMULATION_DEVICE: no
+      ENABLE_32BIT: no
+      MODULES_PKG: no
+      JAVA_HOME: /usr
+      PROJECT: ROCKNIX
+      DEVICE: ${{ inputs.DEVICE }}
+      ARCH: aarch64
+      DISABLE_COLORS: yes
+      CCACHE_COMPILERCHECK: content
+      CCACHE_COMPRESS: 1
+      CCACHE_COMPRESSLEVEL: 6
+      CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
+    steps:
+      - name: Maximize build space
+        uses: justinthelaw/maximize-github-runner-space@v0.9.0
+        with:
+          skip-components: docker-engine
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Retrieve ccache
+        run: |
+          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/ccache/ccache-aarch64-${{ inputs.DEVICE }}.tar"
+          curl -L --fail --silent --show-error "$URL" | tar -xf - || echo "Cache archive not found, building cold."
+
+      - name: Build ${{ inputs.PACKAGE }}
+        timeout-minutes: 330
+        run: |
+          ./scripts/get_env > .env
+          set -e
+          { docker run --init --env-file .env --rm --user $(id -u):$(id -g) \
+              -v ${PWD}:${PWD} -w ${PWD} \
+              "ghcr.io/${{ github.repository_owner }}/rocknix-build:latest" \
+              bash -c "./scripts/build ${{ inputs.PACKAGE }}"; echo $? > docker_exit_code; } \
+            | tee output.log | grep -E --color=never --line-buffered "^GET|^UNPACK|^BUILD|^INSTALL" || true
+          exit_code=$(<docker_exit_code)
+          exit $exit_code
+
+      - name: Collect built binaries
+        run: |
+          BUILD_DIR="build.ROCKNIX-${{ inputs.DEVICE }}.aarch64"
+          mkdir -p out
+          # .install_pkg is what actually lands in the image for this package.
+          find "${BUILD_DIR}" -maxdepth 2 -type d -name ".install_pkg" \
+               -path "*${{ inputs.PACKAGE }}*" -print0 \
+            | while IFS= read -r -d '' d; do
+                echo "== ${d}"
+                tar -C "${d}" -cf "out/${{ inputs.PACKAGE }}-install_pkg.tar" .
+              done
+          ls -la out/ || true
+          find "${BUILD_DIR}" -maxdepth 3 -name "${{ inputs.PACKAGE }}" -type f -perm -u+x -print | head
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.PACKAGE }}-${{ inputs.DEVICE }}
+          path: out/
+          if-no-files-found: error
+
+      - name: Archive logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: output.logs-${{ inputs.PACKAGE }}-${{ inputs.DEVICE }}
+          path: |
+            output.log
+            ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.threads/logs/
+
+      - name: Clean ccache
+        if: always()
+        run: |
+          BUILD_DIR="build.ROCKNIX-${{ inputs.DEVICE }}.aarch64"
+          export CCACHE_DIR=./${BUILD_DIR}/.ccache
+          ./${BUILD_DIR}/toolchain/bin/ccache -M 2G || true
+          ./${BUILD_DIR}/toolchain/bin/ccache -c || true
+          ./${BUILD_DIR}/toolchain/bin/ccache -s -v || true
+
+      - name: Tar ccache
+        if: always()
+        run: |
+          tar --remove-files -cf ccache-aarch64-${{ inputs.DEVICE }}.tar \
+            ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.ccache || true
+
+      - name: Save ccache
+        if: always()
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ccache
+          files: ccache-aarch64-${{ inputs.DEVICE }}.tar
+          make_latest: true
+          prerelease: true
+          body: ccache
+          token: ${{ secrets.GH_PAT }}
+          repository: ${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}
+        continue-on-error: true
