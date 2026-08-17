@@ -47,6 +47,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Docker image references have to be lowercase; the image jobs get this
+      # passed in as OWNER_LC, and workflow_dispatch has no caller to do that.
+      - name: Lowercase repository owner
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: echo "OWNER_LC=${OWNER,,}" >> "$GITHUB_ENV"
+
       - name: Retrieve ccache
         run: |
           URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/ccache/ccache-aarch64-${{ inputs.DEVICE }}.tar"
@@ -59,7 +66,7 @@ jobs:
           set -e
           { docker run --init --env-file .env --rm --user $(id -u):$(id -g) \
               -v ${PWD}:${PWD} -w ${PWD} \
-              "ghcr.io/${{ github.repository_owner }}/rocknix-build:latest" \
+              "ghcr.io/${{ env.OWNER_LC }}/rocknix-build:latest" \
               bash -c "./scripts/build ${{ inputs.PACKAGE }}"; echo $? > docker_exit_code; } \
             | tee output.log | grep -E --color=never --line-buffered "^GET|^UNPACK|^BUILD|^INSTALL" || true
           exit_code=$(<docker_exit_code)
