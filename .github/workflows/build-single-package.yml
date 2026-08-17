@@ -72,25 +72,52 @@ jobs:
           exit_code=$(<docker_exit_code)
           exit $exit_code
 
+      # Collect without assuming a layout: the first attempt guessed
+      # <build>/<pkg>-<version>/.install_pkg, found nothing, and threw away a
+      # 2.5h compile. Print what is actually there, then take the package's
+      # build directory wholesale.
       - name: Collect built binaries
+        if: always()
         run: |
           BUILD_DIR="build.ROCKNIX-${{ inputs.DEVICE }}.aarch64"
+          PKG="${{ inputs.PACKAGE }}"
           mkdir -p out
-          # .install_pkg is what actually lands in the image for this package.
-          find "${BUILD_DIR}" -maxdepth 2 -type d -name ".install_pkg" \
-               -path "*${{ inputs.PACKAGE }}*" -print0 \
-            | while IFS= read -r -d '' d; do
-                echo "== ${d}"
-                tar -C "${d}" -cf "out/${{ inputs.PACKAGE }}-install_pkg.tar" .
+
+          echo "=== top of ${BUILD_DIR} ==="
+          ls -la "${BUILD_DIR}" 2>/dev/null | head -40 || echo "(no build dir)"
+
+          echo "=== package dirs ==="
+          find "${BUILD_DIR}" -maxdepth 1 -iname "${PKG}*" -print 2>/dev/null || true
+
+          echo "=== every file named ${PKG} ==="
+          find "${BUILD_DIR}" -name "${PKG}" -type f -print 2>/dev/null | head -20 || true
+
+          echo "=== every .install_pkg ==="
+          find "${BUILD_DIR}" -maxdepth 3 -type d -name ".install_pkg" -print 2>/dev/null | head -20 || true
+
+          # Whole build directory for the package - small, and guaranteed to
+          # contain the binary wherever the build system put it.
+          PKGDIR="$(find "${BUILD_DIR}" -maxdepth 1 -type d -iname "${PKG}-*" | head -1)"
+          if [ -n "${PKGDIR}" ]; then
+            echo "packing ${PKGDIR}"
+            tar -C "$(dirname "${PKGDIR}")" -czf "out/${PKG}-builddir.tar.gz" "$(basename "${PKGDIR}")"
+          fi
+
+          # Plus any installed copy, wherever it ended up.
+          find "${BUILD_DIR}" -path "*/usr/bin/${PKG}" -type f -print 2>/dev/null \
+            | while IFS= read -r f; do
+                echo "found installed: ${f}"
+                cp "${f}" "out/${PKG}.$(echo "${f}" | md5sum | cut -c1-8)" || true
               done
-          ls -la out/ || true
-          find "${BUILD_DIR}" -maxdepth 3 -name "${{ inputs.PACKAGE }}" -type f -perm -u+x -print | head
+
+          ls -la out/
 
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: ${{ inputs.PACKAGE }}-${{ inputs.DEVICE }}
           path: out/
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Archive logs
         if: failure()
